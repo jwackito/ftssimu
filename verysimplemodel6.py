@@ -1,14 +1,14 @@
 import numpy as np
 import pandas as pd
 import datetime
-rates = pd.read_csv('data/rates.csv')['rate'].values
-rates = pd.rolling_window(rates, window=45, win_type='boxcar', center=True)
-max_actives = pd.read_csv('data/actives.csv')['active'].values
+rates = pd.read_csv('/home/jwackito/frames/rates.csv')['rate'].values
+#rates = pd.ewma(rates,alpha=.001)
+max_actives = pd.read_csv('/home/jwackito/frames/actives.csv')['active'].values
 #max_active = 7 
 current_active = 0
 current_queued = 0
 
-xfers = pd.read_hdf('data/transfers.h5', 'table')
+xfers = pd.read_hdf('/home/jwackito/frames/yrep.h5', 'table')
 xfers = xfers.drop(columns=['started', 'ended'])
 xfers.submited = pd.to_datetime(xfers.submited)
 
@@ -26,11 +26,11 @@ n_queued = []
 n_active = []
 
 step_nr = 0
-while current_time < xfers.loc[len(xfers)-1].submited or current_active > 0:
+while current_time < xfers.loc[20000-1].submited or current_active > 0:
     # add transfers to the queue and the netlink
     current_qoutput = 0
     current_noutput = 0
-    while curr_xfer.submited <= current_time and xfers_index < len(xfers):
+    while curr_xfer.submited <= current_time and xfers_index < 20000:
         queued_transfers[curr_xfer.id] = {'submited': curr_xfer.submited, 'size': int(curr_xfer['size']), 'remaining': int(curr_xfer['size']), 'state': 'queued'}
         curr_xfer = xfers.loc[xfers_index]
         xfers_index += 1
@@ -40,7 +40,7 @@ while current_time < xfers.loc[len(xfers)-1].submited or current_active > 0:
     unqueue = []
     try:
         current_maxactive = max_actives[int((current_time - offset_time).total_seconds())]
-        max_active = current_maxactive
+        max_active = current_maxactive + 1
     except IndexError:
         pass
     for xfer in queued_transfers:
@@ -74,7 +74,7 @@ while current_time < xfers.loc[len(xfers)-1].submited or current_active > 0:
     step_nr += 1
     deactive = []
     for xfer in active_transfers:
-        active_transfers[xfer]['remaining'] -= current_bw/max(1,current_active*.66)
+        active_transfers[xfer]['remaining'] -= bandwidth
         if active_transfers[xfer]['remaining'] <= 0:
             ended_transfers[xfer] = active_transfers[xfer]
             ended_transfers[xfer]['state'] = 'finished'
@@ -95,16 +95,16 @@ while current_time < xfers.loc[len(xfers)-1].submited or current_active > 0:
 #print('mean qo: ', np.mean(queue_output))
 #print('mean no: ', np.mean(network_output))
 
-model9_active = n_active
-model9_queued = n_queued
-model9_qoutput = queue_output
-model9_noutput = network_output
+model_active = n_active
+model_queued = n_queued
+model_qoutput = queue_output
+model_noutput = network_output
 
-#plt.plot(model9_queued,label='model 9 queued')
-#plt.plot(real_queued, label='real queued')
-#plt.plot(model9_active, label='model 9 active')
-#plt.plot(real_active, label='real active')
-#plt.legend()
-#plt.xlabel('seconds since first submition')
-#plt.ylabel('number of transfers')
-#plt.title('Model 9')
+plt.plot(model_queued,label='model queued')
+plt.plot(real_queued, label='real queued')
+plt.plot(model_active, label='model active')
+plt.plot(real_active, label='real active')
+plt.legend()
+plt.xlabel('seconds since first submition')
+plt.ylabel('number of transfers')
+plt.title('nothing1')

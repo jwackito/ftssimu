@@ -1,0 +1,57 @@
+from sklearn.metrics import r2_score as r2
+from sklearn.metrics import mean_squared_error as mse
+from sklearn.metrics import mean_absolute_error as mae
+
+minlen = min(len(real_queued), len(modelB_queued))
+print ('')
+print('MODEL A')
+print('MAE:', mae(real_queued[:minlen],modelA_queued[:minlen]))
+print('RMSE:', np.sqrt(mse(real_queued[:minlen],modelA_queued[:minlen])))
+print('R²:', r2(real_queued[:minlen],modelA_queued[:minlen]))
+print('E_mean:', np.mean(real_queued[:minlen] - modelA_queued[:minlen]))
+print('E_std:', np.std(real_queued[:minlen] - modelA_queued[:minlen]))
+print ('')
+
+print('MODEL B')
+print('MAE:', mae(real_queued[:minlen],modelB_queued[:minlen]))
+print('RMSE:', np.sqrt(mse(real_queued[:minlen],modelB_queued[:minlen])))
+print('R²:', r2(real_queued[:minlen],modelB_queued[:minlen]))
+print('E_mean:', np.mean(real_queued[:minlen] - modelB_queued[:minlen]))
+print('E_std:', np.std(real_queued[:minlen] - modelB_queued[:minlen]))
+print ('')
+
+print('MODEL C')
+print('MAE:', mae(real_queued[:minlen],modelC_queued[:minlen]))
+print('RMSE:', np.sqrt(mse(real_queued[:minlen],modelC_queued[:minlen])))
+print('R²:', r2(real_queued[:minlen],modelC_queued[:minlen]))
+print('E_mean:', np.mean(real_queued[:minlen] - modelC_queued[:minlen]))
+print('E_std:', np.std(real_queued[:minlen] - modelC_queued[:minlen]))
+print ('')
+
+print('MODEL D')
+print('MAE:', mae(real_queued[:minlen],modelD_queued[:minlen]))
+print('RMSE:', np.sqrt(mse(real_queued[:minlen],modelD_queued[:minlen])))
+print('R²:', r2(real_queued[:minlen],modelD_queued[:minlen]))
+print('E_mean:', np.mean(real_queued[:minlen] - modelD_queued[:minlen]))
+print('E_std:', np.std(real_queued[:minlen] - modelD_queued[:minlen]))
+print ('')
+
+print('MODEL E')
+print('MAE:', mae(real_queued[:minlen],modelE_queued[:minlen]))
+print('RMSE:', np.sqrt(mse(real_queued[:minlen],modelE_queued[:minlen])))
+print('R²:', r2(real_queued[:minlen],modelE_queued[:minlen]))
+print('E_mean:', np.mean(real_queued[:minlen] - modelE_queued[:minlen]))
+print('E_std:', np.std(real_queued[:minlen] - modelE_queued[:minlen]))
+print ('')
+
+
+plt.plot(real_queued, 'k-s', label='real queued', alpha=1.)
+plt.plot(modelA_queued, '--o', label='Model A', alpha=.7)
+plt.plot(modelB_queued, '--d', label='Model B', alpha=.6)
+plt.plot(modelC_queued, '-^', label='Model C', alpha=.5)
+plt.plot(modelD_queued, '-*', label='Model D', alpha=.5)
+plt.plot(modelE_queued, '--.', label='Model E')
+plt.legend()
+plt.xlabel('seconds since first submition')
+plt.ylabel('number of transfers')
+plt.title('Queue Prediction Model Comparison')

@@ -1,5 +1,6 @@
 ##################
-# MODEL 11 (Using rate prediction from a function)
+# Test MODEL 12 (Using rate prediction from a function over another dataset)
+#           Using min(1,actives)
 ##################
 
 import numpy as np
@@ -13,11 +14,12 @@ max_actives = pd.read_csv('data/actives.csv')['active'].values
 current_active = 0
 current_queued = 0
 
-xfers = pd.read_hdf('data/transfers.h5', 'table')
+xfers = pd.read_hdf('data/transfers_2018-03-21.h5', 'table')
 #xfers = xfers.drop(columns=['started', 'ended'])
 xfers.submited = pd.to_datetime(xfers.submited)
 xfers.started = pd.to_datetime(xfers.started)
 xfers.ended = pd.to_datetime(xfers.ended)
+
 
 # FIT A FUNCTION FOR THE RATE
 def objective(vars, x, data):
@@ -51,9 +53,17 @@ while r2(cut.N_RATE, cut.N_PRED) < 0.5:
 #print(seed-1)
 #print(rate, overhead, diskrw)
 #print(r2(cut.N_RATE, cut.N_PRED))
+
+#############################
+# NO NEED TO FIT AGAIN
+# HARDCODING THE VALUES OF PREVIOUS FIT
+rate = 152209062.18949136
+overhead = 3.4018973466378646
+diskrw = 128469769.74551667
+
 xfers['N_PRED'] = xfers.SIZE/((xfers.SIZE/rate)+overhead)
 xfers['N_PRED'][xfers['N_PRED']>diskrw]=diskrw
-do_plot = False
+do_plot = True
 if do_plot:
     plt.plot(xfers.SIZE/(1024*1024), xfers.N_RATE/(1024*1024),'.', label='rate')
     plt.plot(xfers.SIZE/(1024*1024), xfers.N_PRED/(1024*1024),'.', label='pred')
@@ -99,7 +109,7 @@ while current_time < xfers.loc[len(xfers)-1].submited or current_active > 0:
     unqueue = []
     try:
         current_maxactive = max_actives[int((current_time - offset_time).total_seconds())]
-        max_active = current_maxactive
+        max_active = max(1,current_maxactive)
     except IndexError:
         pass
     for xfer in queued_transfers:
@@ -121,14 +131,6 @@ while current_time < xfers.loc[len(xfers)-1].submited or current_active > 0:
     
     # simulate one step
     n_active.append(current_active)
-    try:
-        current_bw = rates[int((current_time - offset_time).total_seconds())]
-        bandwidth = current_bw
-    except IndexError:
-        pass
-    #print('STEP: %d' % step_nr)
-    #print('active %d' % current_active)
-    #print('bandwidth/current_active = %f' % (bandwidth/max(current_active,1)))
 
     step_nr += 1
     deactive = []
@@ -145,8 +147,8 @@ while current_time < xfers.loc[len(xfers)-1].submited or current_active > 0:
         current_noutput += 1
     network_output.append(current_noutput)
 
-model11_active = n_active
-model11_queued = n_queued
-model11_qoutput = queue_output
-model11_noutput = network_output
+model12_active = n_active
+model12_queued = n_queued
+model12_qoutput = queue_output
+model12_noutput = network_output
 
