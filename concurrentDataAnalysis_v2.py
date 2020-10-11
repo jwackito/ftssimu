@@ -17,9 +17,9 @@ def get_other_context(t, xfers):
 def get_yet_another_context(t, xfers):
     cut = xfers[xfers.created < t.submitted]
     cut = cut[cut.started > t.submitted]
-    #cut.submitted = cut.submitted.map(lambda x: min(x, t.submitted))
-    #cut.started = cut.started.map(lambda x: min(x, t.submitted))
-    #cut.ended = cut.ended.map(lambda x: min(x, t.submitted))
+    cut.submitted = cut.submitted.map(lambda x: min(x, t.submitted))
+    cut.started = cut.started.map(lambda x: min(x, t.submitted))
+    cut.ended = cut.ended.map(lambda x: min(x, t.submitted))
     return cut
 
 def get_no_context(t, xfers, delta=3):
@@ -38,21 +38,6 @@ def get_ancient_context(t, xfers, delta=3):
 
 def generate_datasample(t, xfers, get_context_function, queue):
     context = get_context_function(t, xfers)
-    metrics = {}
-    cut = context[context.submitted <= t.submitted]
-    metrics['n_queued_rv'] = []
-    cut = context[context.submitted <= t.submitted]
-    metrics['n_queued_ef'] = len(cut[cut.started > t.submitted])
-    metrics['src_load_rv'] =
-    metrics['dst_load_rv'] = 
-    metrics['src_load_ef'] =
-    metrics['dst_load_ef'] = 
-    metrics['link_load_rv'] =
-    metrics['link_load_ef'] =
-    metrics['queue_size_rv'] =
-    metrics['queue_size_ef'] =
-    metrics['parallel_xfers_rv'] = 
-    metrics['parallel_xfers_ef'] = 
     context['created'] = (context.created - t.created).astype(int)//10**9
     context['submitted'] = (context.submitted - t.created).astype(int)//10**9
     context['started'] = (context.started - t.created).astype(int)//10**9
@@ -102,9 +87,10 @@ def calculate_context_link_aware(get_context_name, get_context_function, xfers, 
     xfers2 = xfers[xfers.submitted > (xfers.submitted.min() + dt.timedelta(hours=8))]
     xfers2 = xfers2[xfers2.src_name == src]
     xfers2 = xfers2[xfers2.dst_name == dst]
-    if len(xfers2) > 8000:
+    xfers2 = xfers2[xfers2.src_rse_type == 'DISK']
+    if len(xfers2) > 2000:
         np.random.seed(42)
-        xfers2 = xfers2.sample(8000)
+        xfers2 = xfers2.sample(2000)
     #xfers2 = xfers2[xfers2.external_host != 'https://fts.usatlas.bnl.gov:8446'].sample(5000)
     xfers2 = xfers2.set_index(np.arange(len(xfers2)))
     # get set for context calculation
@@ -180,7 +166,7 @@ def calculate_context_link_aware(get_context_name, get_context_function, xfers, 
     #print('len(link):',len(link))
 
     pnumber = 12
-    target=[]; metrics; i=0                                          
+    target=[]; metrics=[]; i=0                                          
     for i in range(0,len(xfers2),pnumber):
         try:
             print(i, end='\r')
@@ -207,15 +193,13 @@ def calculate_context_link_aware(get_context_name, get_context_function, xfers, 
                 t, c = results[k]
                 # t = targets[k]
                 # c = generate_datasample(t, xfers)
-                metrics.append([c.created.max(), c.submitted.max(), c.started.max(), c.ended.max(), c.tasq.max(), c.tass.max()])
+
+                metrics.append([c.created.min(), c.created.max(),c.created.mean(), c.created.std(), np.median(c.created), np.percentile(c.created, 50)])
                 target.append([t.id, len(c), t.RATE, t.RTIME, t.NTIME, t.QTIME, t.SIZE, t.created,t.submitted])
         except IndexError:
             break
     target = np.array(target)
-    m = np.array(m)
-    s = np.array(s)
-    mini = np.array(mini)
-    maxi = np.array(maxi)
+    metrics = np.array(metrics)
     df = pd.DataFrame()
     df['id'] = target[:,0]
     df['ncount'] = target[:,1].astype(int)
@@ -226,17 +210,24 @@ def calculate_context_link_aware(get_context_name, get_context_function, xfers, 
     df['sizeb'] = target[:,6].astype(int)
     df['created'] = target[:,7]
     df['submitted'] = target[:,8]
+    df['min_created'] = metrics[:,0]
+    df['max_created'] = metrics[:,1]
+    df['mean_created'] = metrics[:,2]
+    df['std_created'] = metrics[:,3]
+    df['median_created'] = metrics[:,4]
+    df['50p_created'] = metrics[:,5]
+
 
     df = df.sort_values('created')
     df = df.sort_values('submitted')
     #df.to_hdf('sample.h5','table')
-    df.to_hdf('data/%s_stats_%s_%s_context%d_20180616.h5'%(get_context_name,src,dst, context_number),'table')
+    df.to_hdf('data/DISK_%s_stats_%s_%s_context%d_20180616.h5'%(get_context_name,src,dst, context_number),'table')
 
 links = [
         'CERN-PROD__BNL-ATLAS', 'BNL-ATLAS__CERN-PROD',
-        'CERN-PROD__FZK-LCG2', 'FZK-LCG2__CERN-PROD',
-        'TRIUMF-LCG2__BNL-ATLAS', 'BNL-ATLAS__TRIUMF-LCG2',
-        'CERN_PROD__MWT2', 'MWT2__CERN-PROD'
+#        'CERN-PROD__FZK-LCG2', 'FZK-LCG2__CERN-PROD',
+#        'TRIUMF-LCG2__BNL-ATLAS', 'BNL-ATLAS__TRIUMF-LCG2',
+#        'CERN_PROD__MWT2', 'MWT2__CERN-PROD'
         ]
 
 for link in links:
@@ -248,7 +239,7 @@ for link in links:
     #for i in range(1,10):
     #    print('Calculating context get_other_context', i)
     #    calculate_context_link_aware('get_other_context',get_other_context, xfers, src, dst, i)
-    for i in range(1,10):
+    for i in range(1,2):
         print('Calculating context get_yet_another_context', i)
         calculate_context_link_aware('get_yet_another_context',get_yet_another_context, xfers, src, dst, i)
     #for i in range(1,10):
@@ -256,4 +247,4 @@ for link in links:
     #    calculate_context_link_aware('get_ancient_context',get_ancient_context, xfers, src, dst, i)
     #for i in range(1,10):
     #    print('Calculating context get_no_context', i)
-    #    calculate_context_link_aware('get_no_context',get_no_context, xfers, src, dst, i)
+    #calculate_context_link_aware('get_no_context',get_no_context, xfers, src, dst, i)

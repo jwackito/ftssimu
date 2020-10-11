@@ -3,6 +3,8 @@ import pandas as pd
 from keras.layers import Embedding, Flatten, LSTM, Dense, Dropout
 from keras.models import Sequential
 from keras.preprocessing.text import Tokenizer
+from functions import read_xfers, cut_outliers
+
 
 def get_context(t, xfers):
     cut = xfers[t.ended > xfers.submitted]
@@ -58,66 +60,65 @@ def generate_datasample(t, xfers):
 
 
 
-xfers = pd.read_csv('data/transfers-2018-04-15.csv', usecols=['account', 'activity', 'src_name', 'dst_name', 'source_rse_id','dest_rse_id', 'created_at', 'started_at', 'submitted_at', 'transferred_at', 'bytes'])
-xfers['activity'] = [s.replace(' ', '_') for s in xfers.activity.values]
-xfers['created'] = pd.to_datetime(xfers.created_at)
-xfers['submitted'] = pd.to_datetime(xfers.submitted_at)
-xfers['started'] = pd.to_datetime(xfers.started_at)
-xfers['ended'] = pd.to_datetime(xfers.transferred_at)
-#xfers['isubmitted'] = (xfers.submitted - xfers.submitted.min()).values.astype(int)//10**9
-#xfers['istarted'] = (xfers.started - xfers.submitted.min()).values.astype(int)//10**9
-#xfers['iended'] = (xfers.ended - xfers.submitted.min()).values.astype(int)//10**9
-xfers['SIZE'] = xfers.bytes
-xfers.pop('created_at')
-xfers.pop('submitted_at')
-xfers.pop('started_at')
-xfers.pop('transferred_at')
-xfers.pop('bytes')
-xfers['NTIME'] = ((xfers.ended - xfers.started).values / 10**9).astype(int)
-xfers['QTIME'] = ((xfers.started - xfers.submitted).values / 10**9).astype(int)
-xfers['RATE'] = xfers.SIZE/xfers.NTIME
-xfers['anomalous1'] = np.logical_and((xfers.NTIME.values > 780), (xfers.QTIME.values > 4600)).astype(int)
-xfers['anomalous2'] = (xfers.RATE/xfers.SIZE < 0.02).astype(int)
-xfers = xfers[xfers.RATE != inf]
+#xfers = pd.read_csv('data/transfers-2018-04-15.csv', usecols=['account', 'activity', 'src_name', 'dst_name', 'source_rse_id','dest_rse_id', 'created_at', 'started_at', 'submitted_at', 'transferred_at', 'bytes'])
+#xfers['activity'] = [s.replace(' ', '_') for s in xfers.activity.values]
+#xfers['created'] = pd.to_datetime(xfers.created_at)
+#xfers['submitted'] = pd.to_datetime(xfers.submitted_at)
+#xfers['started'] = pd.to_datetime(xfers.started_at)
+#xfers['ended'] = pd.to_datetime(xfers.transferred_at)
+##xfers['isubmitted'] = (xfers.submitted - xfers.submitted.min()).values.astype(int)//10**9
+##xfers['istarted'] = (xfers.started - xfers.submitted.min()).values.astype(int)//10**9
+##xfers['iended'] = (xfers.ended - xfers.submitted.min()).values.astype(int)//10**9
+#xfers['SIZE'] = xfers.bytes
+#xfers.pop('created_at')
+#xfers.pop('submitted_at')
+#xfers.pop('started_at')
+#xfers.pop('transferred_at')
+#xfers.pop('bytes')
+#xfers['NTIME'] = ((xfers.ended - xfers.started).values / 10**9).astype(int)
+#xfers['QTIME'] = ((xfers.started - xfers.submitted).values / 10**9).astype(int)
+#xfers['RATE'] = xfers.SIZE/xfers.NTIME
+#xfers['anomalous1'] = np.logical_and((xfers.NTIME.values > 780), (xfers.QTIME.values > 4600)).astype(int)
+#xfers['anomalous2'] = (xfers.RATE/xfers.SIZE < 0.02).astype(int)
+#xfers = xfers[xfers.RATE != inf]
+
+src = 'CERN-PROD'
+dst = 'BNL-ATLAS'
+
+xfers = pd.read_csv('xfers_richer_queued_per_activity_20180401-20180420_v3.csv')
+activities = list(set(xfers.activity))
+for act in activities:
+    xfers['qshare_'+act] = (xfers['q__'+act]/(xfers.q__total))
+data = [xfers.SIZE.values, xfers.RTIME.values, 
+    pd.Categorical(xfers.activity,ordered=False).codes,
+    pd.Categorical(xfers.src_rse_name,ordered=False).codes,
+    pd.Categorical(xfers.dst_rse_name,ordered=False).codes,
+    xfers.q__total.values,
+    xfers.s__total.values,
+]
+for act in activities:
+    data.append(xfers['qshare_'+act].values)
+data.append(xfers.QTIME.values)
+data = np.array(data)
+share = .7
+data_train = data[:,:int(data.shape[1]*share)]
+data_test = data[:,int(data.shape[1]*share):]
+
+xtrain = data_train[:-1,:]
+ytrain = data_train[-1,:]
+xtest = data_test[:-1,:]
+ytest = data_test[-1,:]
 
 
-abnormal = xfers[xfers['anomalous2'] == 1]
-normal = xfers[xfers['anomalous2'] == 0].sample(len(abnormal))
-
-abnormal_train = abnormal.iloc[:4000]
-abnormal_test = abnormal.iloc[4000:4800]
-normal_train = normal.iloc[:4000]
-normal_test = normal.iloc[4000:4800]
-
-
-src = 'MWT2'
-dst = 'AGLT2'
-
-SD_link = xfers[xfers.src_name == src]
-SD_link = SD_link[SD_link.dst_name == dst]
-
-malas1 = xfers[xfers.anomalous1 == 1]
-malas2 = xfers[xfers.anomalous2 == 1]
-
-
-print('Generating tokens')
-l = [xfers.account, xfers.activity, xfers.src_name, xfers.dst_name, xfers.source_rse_id, xfers.dest_rse_id]
-tokenizer = Tokenizer(filters='', lower=False)
-for i in range(len(l)):
-    tokenizer.fit_on_texts(l[i])
-
-max_time_steps = 100
 print('Building the model')
 model = Sequential([
-    #Embedding(len(tokenizer.word_counts)+1, 100, input_length=max_data_len),
-    LSTM(64, input_shape=(max_time_steps, 9),return_sequences=True),
-    LSTM(128, return_sequences=True),
-    LSTM(128, return_sequences=True),
+    Dense(64, input_shape=(),return_sequences=True),
+    LSTM(64, return_sequences=True),
+    LSTM(64, return_sequences=True),
     LSTM(64),
-    Dropout(0.2),
-    Dense(1, activation='sigmoid'),
+    Dense(1, activation='relu'),
 ])
-model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+model.compile(optimizer='adam', loss='mse')
 
 
 

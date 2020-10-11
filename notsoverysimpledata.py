@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
 import datetime
+import colors
 
+from functions import *
 from pandas.tools.plotting import scatter_matrix
 
 # queued
@@ -25,19 +27,8 @@ def calculate_actives(cut):
     return actives
 
 print('Loading dataset...')
-xfers = pd.read_csv('data/transfers-2018-04-15.csv', usecols=['activity', 'bytes', 'created_at', 'source_rse_id','dest_rse_id', 'id', 'src_name', 'dst_name','started_at', 'submitted_at', 'transferred_at', 'updated_at'])
-
-xfers['submitted'] = pd.to_datetime(xfers.submitted_at)
-xfers['started'] = pd.to_datetime(xfers.started_at)
-xfers['ended'] = pd.to_datetime(xfers.transferred_at)
-xfers['SIZE'] = xfers.bytes
-xfers['NTIME'] = ((xfers.ended - xfers.started).values / 10**9).astype(int)
-xfers['QTIME'] = ((xfers.started - xfers.submitted).values / 10**9).astype(int)
-xfers['RATE'] = xfers.SIZE/xfers.NTIME
-#xfers['src_cat'] = pd.Categorical(xfers.src_name,ordered=False)
-#xfers['dst_cat'] = pd.Categorical(xfers.dst_name,ordered=False)
-#xfers['src_cat_code'] = xfers.src_cat.cat.codes
-#xfers['dst_cat_code'] = xfers.dst_cat.cat.codes
+#xfers = pd.read_csv('data/transfers-2018-04-15.csv', usecols=['activity', 'bytes', 'created_at', 'source_rse_id','dest_rse_id', 'id', 'src_name', 'dst_name','started_at', 'submitted_at', 'transferred_at', 'updated_at'])
+xfers,_ = read_xfers('data/transfers-CERN-BNL-20180505-20180509.csv','','')
 
 print('Creating extra observables...')
 total_actives = calculate_actives(xfers) 
@@ -48,32 +39,32 @@ for transfer in xfers.itertuples():
 #xfers.pop('started_offset')
 xfers['avg_actives'] = avg_actives
 
-src = 'MWT2'
-dst = 'AGLT2'
+src = 'CERN-PROD'
+dst = 'BNL-ATLAS'
 
 print ('Removing outliers...')
-SD_link = xfers.where(xfers.src_name == src).dropna()
-SD_link = SD_link.where(SD_link.dst_name == dst).dropna()
+SD_link = xfers[xfers.src_name == src]
+SD_link = SD_link[SD_link.dst_name == dst]
 
-DS_link = xfers.where(xfers.src_name == dst).dropna()
-DS_link = DS_link.where(DS_link.dst_name == src).dropna()
+DS_link = xfers[xfers.src_name == dst]
+DS_link = DS_link[DS_link.dst_name == src]
 
-S_egressing = xfers.where(xfers.src_name == src).dropna()
-S_egressing = S_egressing.where(S_egressing.dst_name != dst).dropna()
-D_egressing = xfers.where(xfers.src_name == dst).dropna()
-D_egressing = D_egressing.where(D_egressing.dst_name != src).dropna()
-S_ingressing = xfers.where(xfers.dst_name == src).dropna()
-S_ingressing = S_ingressing.where(S_ingressing.src_name != dst).dropna()
-D_ingressing = xfers.where(xfers.dst_name == dst).dropna()
-D_ingressing = D_ingressing.where(D_ingressing.src_name != src).dropna()
+S_egressing = xfers[xfers.src_name == src]
+#S_egressing = S_egressing[S_egressing.dst_name != dst]
+D_egressing = xfers[xfers.src_name == dst]
+#D_egressing = D_egressing[D_egressing.dst_name != src]
+S_ingressing = xfers[xfers.dst_name == src]
+#S_ingressing = S_ingressing[S_ingressing.src_name != dst]
+D_ingressing = xfers[xfers.dst_name == dst]
+#D_ingressing = D_ingressing[D_ingressing.src_name != src]
 
 
-queued_SD_link = calculate_queued(SD_link)
-queued_DS_link = calculate_queued(DS_link)
-queued_S_egressing = calculate_queued(S_egressing)
-queued_D_egressing = calculate_queued(D_egressing)
-queued_S_ingressing = calculate_queued(S_ingressing)
-queued_D_ingressing = calculate_queued(D_ingressing)
+#queued_SD_link = calculate_queued(SD_link)
+#queued_DS_link = calculate_queued(DS_link)
+#queued_S_egressing = calculate_queued(S_egressing)
+#queued_D_egressing = calculate_queued(D_egressing)
+#queued_S_ingressing = calculate_queued(S_ingressing)
+#queued_D_ingressing = calculate_queued(D_ingressing)
 
 actives_SD_link = calculate_actives(SD_link)
 actives_DS_link = calculate_actives(DS_link)

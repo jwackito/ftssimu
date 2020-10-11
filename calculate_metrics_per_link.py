@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import datetime
-from read import readxfers
+from read import read_xfers
 
 
 def calculate_actives(xfers, absolute_offset=None):
@@ -51,9 +51,9 @@ src_actives = calculate_actives(xfers_exiting_src, offset)
 minlen = min(len(link_actives),len(src_actives))
 src_actives[:minlen] -= link_actives
 src_queued,src_queued_bytes = calculate_queued(xfers_exiting_src, offset)
-minlen = min(len(link_actives),len(dst_actives))
+minlen = min(len(link_actives),len(src_actives))
 src_queued[:minlen] -= link_queued
-minlen = min(len(link_actives),len(dst_actives))
+minlen = min(len(link_actives),len(src_actives))
 src_actives[:minlen] -= link_actives
 print('Calculating actives/queued for dst based on %d transfers'%(len(xfers_arriving_dst) - len(xfers_in_link)))
 dst_actives = calculate_actives(xfers_arriving_dst, offset)
