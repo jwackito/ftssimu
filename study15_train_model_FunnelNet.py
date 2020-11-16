@@ -191,7 +191,7 @@ def transform_data(tss):
     print(trainx.shape, trainpwx.shape, trainembx.shape, trainy.shape)
     return trainx, trainpwx, trainembx, trainy
 
-def traintestDNN(tss, tss_val):
+def trainFunnelNet(tss, tss_val):
     # making only one model using all the features
     traintsx, trainpwx, trainembx, trainy = transform_data(tss)
     traintsx_val, trainpwx_val, trainembx_val, trainy_val = transform_data(tss_val)
@@ -205,31 +205,16 @@ def traintestDNN(tss, tss_val):
     tss['pmodel'] = model.predict({'ts_input':traintsx, 'pw_input':trainpwx, 'emb_input': trainembx})
     return tss, loss, model
 
-def predictWithDNN(tss):
+def predictFunnelNet(tss):
     testtsx, testpwx, testembx, testy = transform_data(tss)
     preds = model.predict({'ts_input':testtsx, 'pw_input':testpwx, 'emb_input':testembx})
     tss['pmodel'] = (preds*tssstd['target'])+tssmu['target']
     return tss
 
-def predict_and_plot(rid):
-    tss = create_dataset([rid])
-    tss = predictWithLSTM(tss)
-    plt.subplots()
-    plt.plot(tss['ts'][0], tss['minttc'][0], label='$\\sigma_{\\hat{min}}$')
-    plt.plot(tss['ts'][0], tss['medianttc'][0], label='$\\sigma_{\\hat{median}}$')
-    plt.plot(tss['ts'][0], tss['meanttc'][0], label='$\\sigma_{\\hat{mean}}$')
-    plt.plot(tss['ts'][0], tss['maxttc'][0], label='$\\sigma_{\\hat{max}}$')
-    plt.plot(tss['ts'][0], tss['ubytes'][0], label='sum bytes')
-    plt.plot(tss['ts'][0], tss['unxfers'][0], label='sum unfinished nxfers')
-    plt.plot(tss['ts'][0][-1], tss['target'][0], '*', label='target')
-    plt.plot(tss['ts'][0][-1], tss['pmodel'][0],'*', label='$\\delta_{(\\beta_{\\hat{\\mu}})}$')
-    plt.legend()
-    return tss
-
 def predict_and_fogp(tss, thr=.1):
     targets = []
     pmodel = []
-    tss = predictWithDNN(tss)
+    tss = predictFunnelNet(tss)
     targets = np.array(tss['target'])
     pmodel = np.array(tss['pmodel'])
     return targets, pmodel, fogp(targets, pmodel.flatten(), thr)
@@ -260,104 +245,29 @@ lags = 240
 lookback = 0
 lookahead = 18
 
-startt = dt.datetime(2019,7,7)
-#startt = dt.datetime(2019,6,30,21,0)
-endt = dt.datetime(2019,7,8)
+channels = 10
+neurons = 32
+epochs = 120
+train = readtss('train_3jul-4Jul')
+train2 = readtss('train_7jul-8Jul')
+train_val = readtss('validation')
+for k in train.keys():
+    train[k] = np.append(train[k],train2[k],axis=0)
 
-create_train_test = False 
-suffix = '_7jul-8jul'
-if not create_train_test:
-    print('Reading datasets')
-    tss = readtss('train'+suffix)
-    tss_val = readtss('validation'+suffix)
-    tss1 = readtss('test1'+suffix)
-    tss2 = readtss('test2'+suffix)
-    tss3 = readtss('test3'+suffix)
-    tss4 = readtss('test4'+suffix)
-    tss5 = readtss('test5_7jul-8jul')
-    tss6 = readtss('test6_7jul-8jul')
-
-indices = rules.sort_values(by='min_created')[(rules.min_created > startt) & (rules.min_created < endt)].index
-ruleids = rules.loc[indices].ruleid.values
-if create_train_test:
-    tss = create_dataset(ruleids)
-    savetss('train'+suffix, tss)
 tssmu = {}
 tssstd = {}
 
 for k in ['bytes', 'fbytes', 'ubytes', 'nxfers', 'fnxfers', 'unxfers', 'minttc', 'medianttc', 'meanttc', 'maxttc', 'target_bytes', 'target_nxfers', 'target']:
-    tssmu[k] = tss[k].mean()
-    tssstd[k] = tss[k].std()
+    tssmu[k] = train[k].mean()
+    tssstd[k] = train[k].std()
 
-indices = rules.sort_values(by='min_created')[(rules.min_created > endt) & (rules.min_created < (endt+dt.timedelta(hours=.3)))].index
-rids = rules.loc[indices].ruleid.values
-if create_train_test:
-    tss_val = create_dataset(rids)
-    savetss('validation'+suffix, tss_val)
-
-# channels  = number of features to look at
+# channels  = number of feVatures to look at
 channels = 10
 neurons = 32
 epochs = 120
 
+train, loss, model = trainFunnelNet(train, tss_val)
 
-tss, loss, model = traintestDNN(tss, tss_val)
-
-#rid = '40b3d48e074148c287479e74b2db183c'
-#tss_one = predict_and_plot(rid)
-
-indices = rules.sort_values(by='min_created')[(rules.min_created > endt) & (rules.min_created < (endt+dt.timedelta(minutes=10)))].index
-rids = rules.loc[indices].ruleid.values
-if create_train_test:
-    tss1 = create_dataset(rids)
-    savetss('test1'+suffix, tss1)
-targets, pmodel, fogpmodel = predict_and_fogp(tss1, thr=.1)
-print('len: ', len(pmodel), '\nfogpmodel: ', fogpmodel)
-plt.subplots(); plt.plot(targets), plt.plot(pmodel)
-
-indices = rules.sort_values(by='min_created')[(rules.min_created > endt + dt.timedelta(minutes=10)) & (rules.min_created < (endt+dt.timedelta(minutes=20)))].index
-rids = rules.loc[indices].ruleid.values
-if create_train_test:
-    tss2 = create_dataset(rids)
-    savetss('test2'+suffix, tss2)
-targets, pmodel, fogpmodel = predict_and_fogp(tss2, thr=.1)
-print('len: ', len(pmodel), '\nfogpmodel: ', fogpmodel)
-plt.subplots(); plt.plot(targets), plt.plot(pmodel)
-
-indices = rules.sort_values(by='min_created')[(rules.min_created > endt + dt.timedelta(minutes=60)) & (rules.min_created < (endt+dt.timedelta(minutes=70)))].index
-rids = rules.loc[indices].ruleid.values
-if create_train_test:
-    tss3 = create_dataset(rids)
-    savetss('test3'+suffix, tss3)
-targets, pmodel, fogpmodel = predict_and_fogp(tss3, thr=.1)
-print('len: ', len(pmodel), '\nfogpmodel: ', fogpmodel)
-plt.subplots(); plt.plot(targets), plt.plot(pmodel)
-
-indices = rules.sort_values(by='min_created')[(rules.min_created > dt.datetime(2019,7,8,8)) & (rules.min_created < dt.datetime(2019,7,8,8,20))].index
-rids = rules.loc[indices].ruleid.values
-if create_train_test:
-    tss4 = create_dataset(rids)
-    savetss('test4'+suffix, tss4)
-targets, pmodel, fogpmodel = predict_and_fogp(tss4, thr=.1)
-print('len: ', len(pmodel), '\nfogpmodel: ', fogpmodel)
-plt.subplots(); plt.plot(tss4['ts'][:,-1], targets), plt.plot(tss4['ts'][:,-1],pmodel)
-
-indices = rules.sort_values(by='min_created')[(rules.min_created > dt.datetime(2019,7,9)) & (rules.min_created < dt.datetime(2019,7,9,6))].index 
-rids = rules.loc[indices].ruleid.values 
-if create_train_test: 
-    tss5 = create_dataset(rids) 
-    savetss('test5'+suffix, tss5) 
-targets, pmodel, fogpmodel = predict_and_fogp(tss5, thr=.1) 
-print('len: ', len(pmodel), '\nfogpmodel: ', fogpmodel) 
-plt.subplots(); plt.plot(tss5['ts'][:,-1], targets), plt.plot(tss5['ts'][:,-1],pmodel)
-
-indices = rules.sort_values(by='min_created')[(rules.min_created > dt.datetime(2019,7,15)) & (rules.min_created < dt.datetime(2019,7,17))].index 
-rids = rules.loc[indices].ruleid.values 
-if create_train_test: 
-    tss6 = create_dataset(rids) 
-    savetss('test6'+suffix, tss6) 
-targets, pmodel, fogpmodel = predict_and_fogp(tss6, thr=.1) 
-print('len: ', len(pmodel), '\nfogpmodel: ', fogpmodel) 
-plt.subplots(); plt.plot(tss6['ts'][:,-1], targets), plt.plot(tss6['ts'][:,-1],pmodel)
+model.save('Model_FunnelNet_%depochs'%epochs)
 
 session.close()

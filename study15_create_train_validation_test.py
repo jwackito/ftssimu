@@ -11,7 +11,7 @@ from tensorflow.compat.v1 import InteractiveSession
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-
+import pickle
 
 config = ConfigProto()
 config.gpu_options.allow_growth = True
@@ -34,8 +34,7 @@ rules = rules[rules.createdatonce == 1]
 # Tell pandas to treat the infinite as NaN
 pd.set_option('use_inf_as_na', True)
 print('Reading rule-link map')
-rulelinkmap = pd.read_csv('data/rule_to_link_map.csv')
-rulelinkmap = rulelinkmap.dropna()
+rulelinkmap = pickle.load(open('data/rulelinkmap.pickle','rb'))
 
 print('Learning tokens')
 t = keras.preprocessing.text.Tokenizer(filters=' ', oov_token='XXXX')
@@ -82,7 +81,11 @@ def get_timeseries_for_rules(r, cut, rho, lags, lookback):
     return df
 
 def get_links_for_rule(rid):
-    return rulelinkmap[rulelinkmap.ruleid == rid].link.values
+    try:
+        return rulelinkmap[rid]
+    except KeyError:
+        print('Returning shirt for: ',rid)
+        return ['XXXX']
 
 
 def get_data_for_rule(rid):
@@ -127,33 +130,14 @@ def create_dataset(rids):
         tss[k] = np.array(tss[k])
     return tss
 
-#def getTSModel(shp):
-#    minput = keras.Input(shape=(None,shp))
-#    x = layers.Conv1D(neurons, 5, padding='valid')(minput)
-#    x = layers.LeakyReLU()(x)
-#    x = layers.MaxPooling1D(3)(x)
-#    x = layers.Conv1D(neurons, 5, padding='valid')(x)
-#    x = layers.LeakyReLU()(x)
-#    x = layers.LSTM(neurons, dropout=0.1, recurrent_dropout=.0)(x)
-#    moutput = layers.Dense(1)(x)
-#    model = keras.Model(minput, moutput)
-#    return model,minput
-#
-#def getPWModel():
-#    minput = keras.Input(2)
-#    x = layers.Dense(32, activation='relu')(minput)
-#    moutput = layers.Dense(1)(x)
-#    model = keras.Model(minput, moutput)
-#    return model,minput
-
-def build_model(shp):
+def build_FunnelNet_v1_model(shp):
     tsinput = keras.Input(shape=(None,shp),name='ts_input')
     x = layers.Conv1D(neurons, 5, padding='valid')(tsinput)
     x = layers.LeakyReLU()(x)
     x = layers.MaxPooling1D(3)(x)
     x = layers.Conv1D(neurons, 5, padding='valid')(x)
     x = layers.LeakyReLU()(x)
-    x = layers.LSTM(neurons, dropout=0.1, recurrent_dropout=.0)(x)
+    x = layers.LSTM(neurons, dropout=0.1, recurrent_dropout=.50)(x)
     tsoutput = layers.Dense(1)(x)
     
     pwinput = keras.Input(shape=(2), name='pw_input')
@@ -174,6 +158,20 @@ def build_model(shp):
     model = keras.Model(inputs=[tsinput,pwinput, embinput], outputs=[model_output])
     return model
 
+def build_Chollet_Jena_10ch_model(shp):
+    tsinput = keras.Input(shape=(None,shp),name='ts_input')
+    x = layers.Conv1D(neurons, 5, padding='valid')(tsinput)
+    x = layers.LeakyReLU()(x)
+    x = layers.MaxPooling1D(3)(x)
+    x = layers.Conv1D(neurons, 5, padding='valid')(x)
+    x = layers.LeakyReLU()(x)
+    x = layers.LSTM(neurons, dropout=0.1, recurrent_dropout=.50)(x)
+    tsoutput = layers.Dense(1)(x)
+    model_output = layers.Dense(1,name='moutput')(tsoutput)
+
+    model = keras.Model(inputs=[tsinput], outputs=[model_output])
+    return model
+
 def transform_data(tss):
     trainx = []
     trainpwx = []
@@ -191,48 +189,55 @@ def transform_data(tss):
     print(trainx.shape, trainpwx.shape, trainembx.shape, trainy.shape)
     return trainx, trainpwx, trainembx, trainy
 
-def traintestDNN(tss, tss_val):
+def trainvalChollet(tss, tss_val):
     # making only one model using all the features
     traintsx, trainpwx, trainembx, trainy = transform_data(tss)
     traintsx_val, trainpwx_val, trainembx_val, trainy_val = transform_data(tss_val)
 
-    model = build_model(traintsx.shape[-1])
+    model = build_Chollet_Jena_10ch_model(traintsx.shape[-1])
+    model.compile(loss='mae', optimizer='RMSProp')
+
+    loss = model.fit({'ts_input':traintsx},
+            {'moutput': trainy}, epochs=epochs, batch_size=1024, shuffle=True, 
+            validation_data=({'ts_input':traintsx_val}, {'moutput': trainy_val}))
+    tss['pchollet'] = model.predict({'ts_input':traintsx})
+    return tss, loss, model
+
+def predictWithChollet(tss, model):
+    testtsx, testpwx, testembx, testy = transform_data(tss)
+    preds = model.predict({'ts_input':testtsx})
+    tss['pchollet'] = (preds*tssstd['target'])+tssmu['target']
+    return tss
+
+def trainvalFunnel(tss, tss_val):
+    # making only one model using all the features
+    traintsx, trainpwx, trainembx, trainy = transform_data(tss)
+    traintsx_val, trainpwx_val, trainembx_val, trainy_val = transform_data(tss_val)
+
+    model = build_FunnelNet_v1_model(traintsx.shape[-1])
     model.compile(loss='mae', optimizer='RMSProp')
 
     loss = model.fit({'ts_input':traintsx, 'pw_input':trainpwx, 'emb_input':trainembx},
-            {'moutput': trainy}, epochs=epochs, batch_size=1, shuffle=True, 
+            {'moutput': trainy}, epochs=epochs, batch_size=1024, shuffle=True, 
             validation_data=({'ts_input':traintsx_val, 'pw_input':trainpwx_val, 'emb_input': trainembx_val}, {'moutput': trainy_val}))
-    tss['pmodel'] = model.predict({'ts_input':traintsx, 'pw_input':trainpwx, 'emb_input': trainembx})
+    tss['pfunnel'] = model.predict({'ts_input':traintsx, 'pw_input':trainpwx, 'emb_input': trainembx})
     return tss, loss, model
 
-def predictWithDNN(tss):
+def predictWithFunnel(tss, model):
     testtsx, testpwx, testembx, testy = transform_data(tss)
     preds = model.predict({'ts_input':testtsx, 'pw_input':testpwx, 'emb_input':testembx})
-    tss['pmodel'] = (preds*tssstd['target'])+tssmu['target']
-    return tss
-
-def predict_and_plot(rid):
-    tss = create_dataset([rid])
-    tss = predictWithLSTM(tss)
-    plt.subplots()
-    plt.plot(tss['ts'][0], tss['minttc'][0], label='$\\sigma_{\\hat{min}}$')
-    plt.plot(tss['ts'][0], tss['medianttc'][0], label='$\\sigma_{\\hat{median}}$')
-    plt.plot(tss['ts'][0], tss['meanttc'][0], label='$\\sigma_{\\hat{mean}}$')
-    plt.plot(tss['ts'][0], tss['maxttc'][0], label='$\\sigma_{\\hat{max}}$')
-    plt.plot(tss['ts'][0], tss['ubytes'][0], label='sum bytes')
-    plt.plot(tss['ts'][0], tss['unxfers'][0], label='sum unfinished nxfers')
-    plt.plot(tss['ts'][0][-1], tss['target'][0], '*', label='target')
-    plt.plot(tss['ts'][0][-1], tss['pmodel'][0],'*', label='$\\delta_{(\\beta_{\\hat{\\mu}})}$')
-    plt.legend()
+    tss['pfunnel'] = (preds*tssstd['target'])+tssmu['target']
     return tss
 
 def predict_and_fogp(tss, thr=.1):
     targets = []
     pmodel = []
-    tss = predictWithDNN(tss)
+    tss = predictWithChollet(tss,chollet_model)
+    tss = predictWithFunnel(tss, funnel_model)
     targets = np.array(tss['target'])
-    pmodel = np.array(tss['pmodel'])
-    return targets, pmodel, fogp(targets, pmodel.flatten(), thr)
+    pchollet = np.array(tss['pchollet'])
+    pfunnel = np.array(tss['pfunnel'])
+    return targets, pchollet, pfunnel, fogp(targets, pchollet.flatten(), thr), fogp(targets, pfunnel.flatten(), thr)
 
 def savetss(name, tss):
     for k in tss.keys(): 
@@ -260,104 +265,34 @@ lags = 240
 lookback = 0
 lookahead = 18
 
-startt = dt.datetime(2019,7,7)
-#startt = dt.datetime(2019,6,30,21,0)
-endt = dt.datetime(2019,7,8)
+suffix = '_ultimate'
 
-create_train_test = False 
-suffix = '_7jul-8jul'
-if not create_train_test:
-    print('Reading datasets')
-    tss = readtss('train'+suffix)
-    tss_val = readtss('validation'+suffix)
-    tss1 = readtss('test1'+suffix)
-    tss2 = readtss('test2'+suffix)
-    tss3 = readtss('test3'+suffix)
-    tss4 = readtss('test4'+suffix)
-    tss5 = readtss('test5_7jul-8jul')
-    tss6 = readtss('test6_7jul-8jul')
-
+print('Creating train dataset')
+startt = dt.datetime(2019,6,8)
+endt = dt.datetime(2019,7,4)
+st = time.time()
 indices = rules.sort_values(by='min_created')[(rules.min_created > startt) & (rules.min_created < endt)].index
 ruleids = rules.loc[indices].ruleid.values
-if create_train_test:
-    tss = create_dataset(ruleids)
-    savetss('train'+suffix, tss)
-tssmu = {}
-tssstd = {}
+tss = create_dataset(ruleids)
+savetss('data/train'+suffix, tss)
+print('Done: %0.2f'%(time.time() - st))
 
-for k in ['bytes', 'fbytes', 'ubytes', 'nxfers', 'fnxfers', 'unxfers', 'minttc', 'medianttc', 'meanttc', 'maxttc', 'target_bytes', 'target_nxfers', 'target']:
-    tssmu[k] = tss[k].mean()
-    tssstd[k] = tss[k].std()
+print('Creating Validation dataset')
+startt = dt.datetime(2019,7,4)
+endt = dt.datetime(2019,7,11)
+st = time.time()
+indices = rules.sort_values(by='min_created')[(rules.min_created > startt) & (rules.min_created < endt)].index
+ruleids = rules.loc[indices].ruleid.values
+tss = create_dataset(ruleids)
+savetss('data/validation'+suffix, tss)
+print('Done: %0.2f'%(time.time() - st))
 
-indices = rules.sort_values(by='min_created')[(rules.min_created > endt) & (rules.min_created < (endt+dt.timedelta(hours=.3)))].index
-rids = rules.loc[indices].ruleid.values
-if create_train_test:
-    tss_val = create_dataset(rids)
-    savetss('validation'+suffix, tss_val)
-
-# channels  = number of features to look at
-channels = 10
-neurons = 32
-epochs = 120
-
-
-tss, loss, model = traintestDNN(tss, tss_val)
-
-#rid = '40b3d48e074148c287479e74b2db183c'
-#tss_one = predict_and_plot(rid)
-
-indices = rules.sort_values(by='min_created')[(rules.min_created > endt) & (rules.min_created < (endt+dt.timedelta(minutes=10)))].index
-rids = rules.loc[indices].ruleid.values
-if create_train_test:
-    tss1 = create_dataset(rids)
-    savetss('test1'+suffix, tss1)
-targets, pmodel, fogpmodel = predict_and_fogp(tss1, thr=.1)
-print('len: ', len(pmodel), '\nfogpmodel: ', fogpmodel)
-plt.subplots(); plt.plot(targets), plt.plot(pmodel)
-
-indices = rules.sort_values(by='min_created')[(rules.min_created > endt + dt.timedelta(minutes=10)) & (rules.min_created < (endt+dt.timedelta(minutes=20)))].index
-rids = rules.loc[indices].ruleid.values
-if create_train_test:
-    tss2 = create_dataset(rids)
-    savetss('test2'+suffix, tss2)
-targets, pmodel, fogpmodel = predict_and_fogp(tss2, thr=.1)
-print('len: ', len(pmodel), '\nfogpmodel: ', fogpmodel)
-plt.subplots(); plt.plot(targets), plt.plot(pmodel)
-
-indices = rules.sort_values(by='min_created')[(rules.min_created > endt + dt.timedelta(minutes=60)) & (rules.min_created < (endt+dt.timedelta(minutes=70)))].index
-rids = rules.loc[indices].ruleid.values
-if create_train_test:
-    tss3 = create_dataset(rids)
-    savetss('test3'+suffix, tss3)
-targets, pmodel, fogpmodel = predict_and_fogp(tss3, thr=.1)
-print('len: ', len(pmodel), '\nfogpmodel: ', fogpmodel)
-plt.subplots(); plt.plot(targets), plt.plot(pmodel)
-
-indices = rules.sort_values(by='min_created')[(rules.min_created > dt.datetime(2019,7,8,8)) & (rules.min_created < dt.datetime(2019,7,8,8,20))].index
-rids = rules.loc[indices].ruleid.values
-if create_train_test:
-    tss4 = create_dataset(rids)
-    savetss('test4'+suffix, tss4)
-targets, pmodel, fogpmodel = predict_and_fogp(tss4, thr=.1)
-print('len: ', len(pmodel), '\nfogpmodel: ', fogpmodel)
-plt.subplots(); plt.plot(tss4['ts'][:,-1], targets), plt.plot(tss4['ts'][:,-1],pmodel)
-
-indices = rules.sort_values(by='min_created')[(rules.min_created > dt.datetime(2019,7,9)) & (rules.min_created < dt.datetime(2019,7,9,6))].index 
-rids = rules.loc[indices].ruleid.values 
-if create_train_test: 
-    tss5 = create_dataset(rids) 
-    savetss('test5'+suffix, tss5) 
-targets, pmodel, fogpmodel = predict_and_fogp(tss5, thr=.1) 
-print('len: ', len(pmodel), '\nfogpmodel: ', fogpmodel) 
-plt.subplots(); plt.plot(tss5['ts'][:,-1], targets), plt.plot(tss5['ts'][:,-1],pmodel)
-
-indices = rules.sort_values(by='min_created')[(rules.min_created > dt.datetime(2019,7,15)) & (rules.min_created < dt.datetime(2019,7,17))].index 
-rids = rules.loc[indices].ruleid.values 
-if create_train_test: 
-    tss6 = create_dataset(rids) 
-    savetss('test6'+suffix, tss6) 
-targets, pmodel, fogpmodel = predict_and_fogp(tss6, thr=.1) 
-print('len: ', len(pmodel), '\nfogpmodel: ', fogpmodel) 
-plt.subplots(); plt.plot(tss6['ts'][:,-1], targets), plt.plot(tss6['ts'][:,-1],pmodel)
-
-session.close()
+print('Creating Test dataset')
+startt = dt.datetime(2019,7,11)
+endt = dt.datetime(2019,7,29)
+st = time.time()
+indices = rules.sort_values(by='min_created')[(rules.min_created > startt) & (rules.min_created < endt)].index
+ruleids = rules.loc[indices].ruleid.values
+tss = create_dataset(ruleids)
+savetss('data/test'+suffix, tss)
+print('Done: %0.2f'%(time.time() - st))
