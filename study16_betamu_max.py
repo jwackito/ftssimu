@@ -31,6 +31,11 @@ def get_real_finished_rules_at(t0, rho, lags, lookback):
     cut = rules[(rules.min_created >= (t0 - dt.timedelta(seconds=rho*lookback+rho*lags))) & (rules.min_created < t0)]
     return cut
 
+def generate_median_mean_pred_for_rule(rid, cut):
+    r = rules[rules.ruleid == rid].iloc[0]
+    # calculate the real mean of the previous window
+    return [rid, r.ttc, cut.ttc.min(), cut.ttc.median(), cut.ttc.mean(), cut.ttc.max()]
+
 def get_timeseries_for_rules(r, cut, rho, lags, lookback):
     try:
         x = pd.date_range(r.min_created - dt.timedelta(seconds=rho*lookback+rho*lags), r.min_created, freq=str(rho)+'s')
@@ -76,15 +81,17 @@ def get_prediction_for_rule(rid, rho, lags, lookback):
     lookahead = 8 * 60 // rho
     r = rules[rules.ruleid == rid].iloc[0]
     cutobs = get_observed_finished_rules_at(r.min_created, rho, lags, lookback)
-    #cutreal = get_real_finished_rules_at(r.min_created, rho, lags, lookback)
-    tsobs = get_timeseries_for_rules(r, cutobs, rho, lags, lookback)
+    cutreal = get_real_finished_rules_at(r.min_created, rho, lags, lookback)
+    dfobs = generate_median_mean_pred_for_rule(rid, cutobs)
+    dfreal = generate_median_mean_pred_for_rule(rid, cutreal)
+    #tsobs = get_timeseries_for_rules(r, cutobs, rho, lags, lookback)
     #tsreal = get_timeseries_for_rules(r, cutreal, rho, lags, lookback)
-    tsobs = predict_beta_hat_mu(r, tsobs, lags, lookahead)
+    #tsobs = predict_beta_hat_mu(r, tsobs, lags, lookahead)
     #tsreal = real_beta_mu(r, tsreal, lags, lookahead)
 #    tsobs.to_csv('data/timeseries/obs_log%s.csv.bz2'%r.ruleid, index=False, compression='bz2')
 #    tsreal.to_csv('data/timeseries/real_log%s.csv.bz2'%r.ruleid, index=False, compression='bz2')
     #obspmin = tsobs.pminttc.values[-1]
-    obspmedian = tsobs.pmedianttc.values[-1]
+    #obspmedian = tsobs.pmedianttc.values[-1]
     #obspmean = tsobs.pmeanttc.values[-1]
     #obspmax = tsobs.pmaxttc.values[-1]
     #realpmin = tsreal.pminttc.values[-1]
@@ -95,7 +102,7 @@ def get_prediction_for_rule(rid, rho, lags, lookback):
     #realmedian = tsreal.medianttc.values[-1]
     #realmean = tsreal.meanttc.values[-1]
     #realmax = tsreal.maxttc.values[-1]
-    return r.ruleid, r.ttc, obspmedian
+    return r.ruleid, r.ttc, dfreal[-1], dfobs[-1]
 
 print('Creating Test dataset')
 startt = dt.datetime(2019,7,11)
@@ -104,17 +111,34 @@ st = time.time()
 indices = rules.sort_values(by='min_created')[(rules.min_created > startt) & (rules.min_created < endt)].index
 ruleids = rules.loc[indices].ruleid.values
 
-rhos = [30]
-lags = [45]  # lags de 30 segundos
-lookback = [240]  # lookback de 6, 12 y 24 horas dividido 30 segundos
-for run in range(1):
-    print('RUN: %d'%run)
-    #indices = np.random.choice(rules[(rules.min_created > dt.datetime(2019,6,9)) & (rules.min_created < dt.datetime(2019,7,30))].index, 200)
-    for rho in rhos:
-        for lag in lags:
-            for lb in lookback:
-                print('Calculating predictions for ρ=%d lags=%d lookback=%d'%(rho, lag, lb), end='\r')
-                rids = Parallel(n_jobs=12, backend='multiprocessing')(delayed(get_prediction_for_rule)(r, rho, lag, lb) for r in rules.loc[indices].ruleid.values)
-                rids = pd.DataFrame(rids, columns=['rid', 'ttc', 'obspmedian'])
-                rids.to_csv('data/tsa/gammamedian_TSA_predictions_rho_%d_lags_%d_lookback_%d_run_%d.csv'%(rho, lag, lb, run), index=False)
-
+#rhos = [30]
+#lags = [45]  # lags de 30 segundos
+#lookback = [240]  # lookback de 6, 12 y 24 horas dividido 30 segundos
+#for run in range(1):
+#    print('RUN: %d'%run)
+#    #indices = np.random.choice(rules[(rules.min_created > dt.datetime(2019,6,9)) & (rules.min_created < dt.datetime(2019,7,30))].index, 200)
+#    for rho in rhos:
+#        for lag in lags:
+#            for lb in lookback:
+#                print('Calculating predictions for ρ=%d lags=%d lookback=%d'%(rho, lag, lb), end='\r')
+#                rids = Parallel(n_jobs=12, backend='multiprocessing')(delayed(get_prediction_for_rule)(r, rho, lag, lb) for r in rules.loc[indices].ruleid.values)
+#                rids = pd.DataFrame(rids, columns=['rid', 'ttc', 'realmedian'])
+#                rids.to_csv('data/tsa/beta_median_TSA_predictions_rho_%d_lags_%d_lookback_%d_run_%d.csv'%(rho, lag, lb, run), index=False)
+rhos = range(100, 1001, 100) 
+lags = [1]  # lags de 30 segundos 
+lookback = [0]  # lookback de 6, 12 y 24 horas dividido 30 segundos 
+for run in range(1): 
+    print('RUN: %d'%run) 
+    indices = indices[10000:10100] 
+    for rho in rhos: 
+        for lag in lags: 
+            for lb in lookback: 
+                print('Calculating predictions for ρ=%d lags=%d lookback=%d'%(rho, lag, lb), end='\r') 
+                rids = Parallel(n_jobs=12, backend='multiprocessing')(delayed(get_prediction_for_rule)(r, rho, lag, lb) for r in rules.loc[indices].ruleid.values) 
+                if rho == 100: 
+                    df = pd.DataFrame(rids, columns=['rid', 'ttc', 'rmax'+str(rho), 'omax'+str(rho)]) 
+                else: 
+                    df2 = pd.DataFrame(rids, columns=['rid', 'ttc', 'rmax'+str(rho), 'omax'+str(rho)]) 
+                    df['rmax%d'%(rho)] = df2['rmax'+str(rho)] 
+                    df['omax%d'%(rho)] = df2['omax'+str(rho)] 
+    df.to_csv('data/tsa/beta_max_TSA_predictions_rho_all_lags_%d_lookback_%d_run_%d.csv'%(lag, lb, run), index=False)
